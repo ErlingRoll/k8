@@ -1,0 +1,136 @@
+#!/bin/bash
+
+DMENU_LENGTH=30
+
+case $1 in
+"config")
+    case $2 in
+    "add")
+        FILEPATH=$3
+        if test -f "$FILEPATH"; then  
+            mv ~/.kube/config ~/.kube/old-config
+            export KUBECONFIG=~/.kube/old-config:$FILEPATH
+            kubectl config view --flatten > ~/.kube/config
+            export KUBECONFIG=~/.kube/config
+        else
+            echo "Usage: k8 add <CONFIG_FILE>"
+        fi
+        ;;
+    "delete")
+        CONFIG=$(kubectl config get-contexts | dmenu -l $DMENU_LENGTH | awk '{print $1, $2, $3}')
+        CONTEXT="$(echo "$CONFIG" | awk '{print $1}')"
+        CLUSTER="$(echo "$CONFIG" | awk '{print $2}')"
+        USER="$(echo "$CONFIG" | awk '{print $3}')"
+        if [ "$NAME" = "*" ]; then
+            echo "Cannot delete current context"
+        elif [ "$CONTEXT" != "" ]; then
+            kubectl config unset contexts.$CONTEXT
+            kubectl config unset clusters.$CLUSTER
+            kubectl config unset users.$USER
+        fi
+        ;;
+    "use")
+        CONTEXT=$(kubectl config get-contexts | dmenu -l $DMENU_LENGTH | awk '{print $1}')
+        if [ "$CONTEXT" = "*" ]; then
+            echo "Already selected"
+        elif [ "$CONTEXT" != "" ]; then
+            kubectl config use-context $CONTEXT
+        fi
+        ;;
+    *)
+        echo "k8 config [Command]"
+        echo "Commands:"
+        echo "  add <CONFIG_FILE>  Add a config file as new cluster context."
+        echo "  delete             Delete an available cluster context."
+        echo "  use                Select an available cluster context."
+        ;;
+    esac
+    ;;
+"delete")
+    case $2 in
+    "namespace")
+        NAMESPACE=$(kubectl get namespace | dmenu -l $DMENU_LENGTH | awk '{print $1}')
+        if [ "$NAMESPACE" != "" ]; then
+            kubectl delete --all daemonsets,replicasets,services,deployments,pods,rc --namespace=$NAMESPACE
+            kubectl delete namespace $NAMESPACE
+        fi
+        ;;
+    "-h"|"--help"|"help")
+        echo "Usage: k8 delete [ <API_RESOURCE> | namespace ]"
+        echo "WARNING: DELETING A NAMESPACE FORCE DELETES ALL RESOURCES IN THAT NAMESPACE"
+        echo "Example: k8 delete pod"
+        ;;
+    *)
+        RESOURCE=$(kubectl get $2 -A | dmenu -l $DMENU_LENGTH | awk '{str=sprintf("%s -n %s", $2, $1)} END {print str}')
+        if [ "$RESOURCE" != "" ]; then
+            if [ "$3" = "-f" ]; then
+                kubectl delete $2 $RESOURCE --grace-period=0 --force
+            else
+                kubectl delete $2 $RESOURCE            
+            fi
+        fi
+        ;;
+    esac
+    ;;
+"describe")
+    RESOURCE=$(kubectl get $2 -A | dmenu -l $DMENU_LENGTH | awk '{str=sprintf("%s -n %s", $2, $1)} END {print str}')
+    if [ "$RESOURCE" != "" ]; then
+        kubectl describe $2 $RESOURCE
+    else
+        echo "Usage: k8 describe [ <API_RESOURCE> | namespace ]"
+    fi
+    ;;
+"dev")
+    skaffold dev --force=false "${@:2}" 
+    ;;
+"exec")
+    POD=$(kubectl get pods -A | dmenu -l $DMENU_LENGTH | awk '{str=sprintf("%s -n %s", $2, $1)} END {print str}')
+    if [ "$POD" != "" ]; then
+        kubectl exec -it $POD -- bash
+    fi
+    ;;
+"logs")
+    POD=$(kubectl get pods -A | dmenu -l $DMENU_LENGTH | awk '{str=sprintf("%s -n %s", $2, $1)} END {print str}')
+    if [ "$POD" != "" ]; then
+        kubectl logs $POD $2
+    fi
+    ;; 
+"taint")
+    case $2 in
+    "master")
+        NODE=$(kubectl get nodes --output wide | dmenu -l $DMENU_LENGTH | awk '{print $1}')
+        if [ "$NODE" != "" ]; then
+            kubectl taint node $NODE node-role.kubernetes.io/master=true:NoSchedule 
+        fi
+        ;;
+    "worker")
+        NODE=$(kubectl get nodes --output wide | dmenu -l $DMENU_LENGTH | awk '{print $1}')
+        if [ "$NODE" != "" ]; then
+            kubectl taint node $NODE node-role.kubernetes.io/master-
+            kubectl label node $NODE node-role.kubernetes.io/worker=worker
+        fi
+        ;;
+    *)
+        echo "k8 taint [ master | worker ]"
+        echo "  master  Label node as a master. This will disable pod scheduling on this node."
+        echo "  worker  Label node as a worker. This will allow pod scheduling on this node."
+        ;;
+    esac
+    ;;    
+"watch")
+    watch -n 1 kubectl get pods -A "${@:2}"
+    ;;
+*)
+    echo "Usage: k8 [Command]"
+    echo "Commands:"
+    echo "  config [ add | delete | use ]    Manage cluster config files."
+    echo "  delete <API_RESOURCE>            Delete a resource or all resources in a namespace."
+    echo "  describe <API_RESOURCE>          Describe pod information."
+    echo "  dev                              Alias for \"skaffold dev --force=false\"."
+    echo "  exec                             Execute bash in a pod."
+    echo "  logs [ -f ]                      Print logs for a pod."
+    echo "  taint [ master | worker ]        Label a node in a cluster as a master or a worker."
+    echo "  watch                            Alias for \"watch -n 1 kubectl get pods -A\"."
+    ;;
+esac
+
