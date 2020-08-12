@@ -1,6 +1,12 @@
 # k8
 Kubectl command line tool
 
+## Prerequisites
+
+- kubectl
+- dmenu
+- skaffold (Optional)
+
 ## Install
 ```
 mkdir -p ~/.scripts \
