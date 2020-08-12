@@ -18,4 +18,6 @@ mkdir -p ~/.scripts \
 
 ### Add path to bashrc
 
+```
 echo "PATH=$PATH:~/.scripts >> ~/.bashrc" && bash
+```
